@@ -1,0 +1,23 @@
+# ROS2 build folders
+build/
+install/
+log/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+
+# VSCode
+.vscode/
+
+# OS files
+.DS_Store
+
+# External dependencies
+src/Stage/
+src/stage_ros2/
