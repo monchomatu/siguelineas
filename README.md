@@ -50,7 +50,8 @@ chmod +x run_experiments.sh
 El siguiente comando tiene la sintáxis para correr múltiples experimentos:
 - archivo
 - cantidad de carreras con replanificación
-- ruido en actuadores
+- cantidad de carreras sin replanificación
+- ruido en actuadores (true/false)
 
 ```bash 
 ./run_experiments.sh 1 1 false
