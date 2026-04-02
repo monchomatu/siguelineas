@@ -23,7 +23,7 @@ Clonar el repositorio:
 git clone https://github.com/monchomatu/siguelineas.git
 cd siguelineas/src
 ```
-Clonar dependencias:
+Clonar dependencias externas:
 
 ```bash
 git clone https://github.com/tuw-robotics/Stage.git
@@ -66,5 +66,24 @@ El siguiente comando tiene la sintáxis para correr múltiples experimentos:
 - perception: procesamiento de sensores
 - En cada ejecución se creará una carpeta llamada results con un csv de las métricas de la corrida y una imágen del recorrido
 ---
+
+## Dependencias externas
+
+Este trabajo se apoya en herramientas desarrolladas por TU Wien Robotics Group:
+
+- Stage (simulador 2D de robots): https://github.com/tuw-robotics/Stage
+- stage_ros2 (integración de Stage con ROS2): https://github.com/tuw-robotics/stage_ros2
+
+Se agradece a sus respectivos autores por el desarrollo de estas herramientas.
+
+---
+
+## Licencia y créditos
+
+Este proyecto hace uso de software de terceros. Cada dependencia mantiene su propia licencia, la cual debe ser respetada.
+
+Para más información, consultar los repositorios originales.
+---
+
 ## Autor
 Ramón Herrera
