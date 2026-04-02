@@ -5,19 +5,28 @@ from rclpy.node import Node
 from nav_msgs.msg import Odometry
 from nav_msgs.msg import Path
 from geometry_msgs.msg import Twist
+from geometry_msgs.msg import PoseStamped
 import math
 import numpy as np
 
 from std_msgs.msg import Bool
-from std_msgs.msg import Float64
+from std_msgs.msg import Float64, Int32
 
+from pathlib import Path as dirpath
 import csv
 import os
+
+import json
+from std_msgs.msg import String
+
+import time
 
 
 class SimpleGoalController(Node):
     def __init__(self):
         super().__init__('simple_goal_controller')
+        
+        self.results_dir = dirpath("results")
         
          # ===== PATH =====
         self.path_received = False
@@ -26,17 +35,21 @@ class SimpleGoalController(Node):
         self.current_segment = 0
         self.current_pose = None
         self.replan_events = -1
+        self.tracked_path = []
         
         # ====== ESCAPE ============
         self.escape_start_time = 0.0
-        self.escape = False
         self.escape_state = 0
         self.escape_start_time = None
         self.escape_active = False
+        self.escape_mode = 0
         
         # ===== LIMITES =====
         self.v = 0.33
         self.w_max = np.deg2rad(90)
+        
+        self.declare_parameter("use_noise", False)
+        self.use_noise = self.get_parameter("use_noise").value
         
         # ===== GANANCIAS =====
         self.K = np.array([[2.22144147, 1.94942709]]) # velocidad ctte = 0.3, w_max = 90 grad/seg
@@ -99,7 +112,7 @@ class SimpleGoalController(Node):
         )
         
         self.escape_sub = self.create_subscription(
-            Bool,
+            Int32,
             '/nav/escape_request',
             self.escape_cb,
             10
@@ -117,6 +130,20 @@ class SimpleGoalController(Node):
             '/nav/escape_done',
             10
         )
+        
+        self.tracker_done_pub = self.create_publisher(
+            Bool,
+            '/nav/tracker_finalized',
+            10
+        )
+        
+        self.tracked_pub = self.create_publisher(
+            Path,
+            '/tracked_path',
+            10
+        )
+        
+        self.metrics_pub = self.create_publisher(String, "/tracker_metrics", 10)
         
         self.pub_P_sat   = self.create_publisher(Float64, "/metrics/P_sat",  10)
         self.pub_dP_sat  = self.create_publisher(Float64, "/metrics/dP_sat",  10)
@@ -138,12 +165,14 @@ class SimpleGoalController(Node):
     #Funciónes de escape
     def escape_cb(self, msg):
         
-        if msg.data and self.escape_state == 0:
+        if (msg.data > 0) and self.escape_state == 0:
+            self.escape_mode = msg.data
             self.escape_active = True
             self.escape_state = 1
+            self.path_received = False
             self.escape_done_pub.publish(Bool(data=False))
             self.escape_start_time = self.get_clock().now().nanoseconds * 1e-9
-            self.get_logger().info(
+            self.get_logger().warn(
             f"Escape initialized"
             )
         
@@ -158,20 +187,30 @@ class SimpleGoalController(Node):
         ESCAPE_TURN = 2
         ESCAPE_DONE = 3
         
-        giro = 2.0 #segundos
-        retroceso = 2.0 #segundos
+        giro = 1.0 #segundos
+        retroceso = 1.0 #segundos
         if self.escape_state == ESCAPE_BACK:
             if t - self.escape_start_time < retroceso:
                 cmd.linear.x = -0.6
                 cmd.angular.z = 0.0
+                self.get_logger().warn(
+                f"Retroceso"
+                )
             else:
-                self.escape_state = ESCAPE_TURN
-                self.escape_start_time = t
+                if self.escape_mode == 2 or self.escape_mode == 0:
+                    self.escape_state = ESCAPE_DONE
+                else:
+                    self.escape_state = ESCAPE_TURN
+                    self.escape_start_time = t
 
         elif self.escape_state == ESCAPE_TURN:
             if t - self.escape_start_time < giro:
-                cmd.linear.x = 0.0
-                cmd.angular.z = 0.6
+                if self.escape_mode == 1: # obstáculo a la izquierda
+                    cmd.linear.x = 0.0
+                    cmd.angular.z = - 0.6
+                elif self.escape_mode == 3: # Obstáculo a la derecha
+                    cmd.linear.x = 0.0
+                    cmd.angular.z = 0.6
             else:
                 self.escape_state = ESCAPE_DONE
 
@@ -182,11 +221,12 @@ class SimpleGoalController(Node):
             # reset
             self.escape_active = False
             self.escape_state = ESCAPE_IDLE
+            self.escape_mode = 0
 
             # MUY IMPORTANTE
-            self.escape = False
+            
             self.escape_done_pub.publish(Bool(data=True))
-            self.get_logger().info(
+            self.get_logger().warn(
             f"Escaped"
             )
 
@@ -194,11 +234,26 @@ class SimpleGoalController(Node):
         
     
     #=====================================
+    
+    #ruido en actuadores
+    def add_actuator_noise(self, cmd: Twist()):
+        noise_percentage = 0.02 # 2%
+        if self.use_noise:
+            linear_nominal = cmd.linear.x
+            angular_nominal = cmd.angular.z
+
+            # 2% de ruido gaussiano
+            cmd.linear.x = linear_nominal * (1 + np.random.normal(0, noise_percentage))
+            cmd.angular.z = angular_nominal * (1 + np.random.normal(0, noise_percentage))
+
+        return cmd
         
     def path_callback(self, msg: Path):
         if self.path_received:
             return
-
+        if self.escape_active:
+            return
+            
         self.path_points = []
 
         for pose in msg.poses:
@@ -219,10 +274,9 @@ class SimpleGoalController(Node):
         self.get_logger().info(
             f"Path recibido con {len(self.segments)} segmentos"
         )
-        self.get_logger().info("Avanzando")
+        
         self.replan_events += 1
-        #Reiniciar estado
-        self.escape_done_pub.publish(Bool(data=False))
+
     
     #=====================================
     # FUNCIONES DE STOP
@@ -241,17 +295,17 @@ class SimpleGoalController(Node):
     # ODOM CALLBACK A DEPURAR
     # =======================================================
     def odom_callback(self, msg: Odometry):
+        if self.escape_active:
+            self.escape_routine()
+            return
         if not self.path_received:
             return
         if not self.enabled:
             self.publish_zero_cmd()
             self.path_received = False
             return
-        #Disparar escape
-        if self.escape_active:
-            self.escape_routine()
-            #self.path_received = False
-            return
+        
+        self.tracker_done_pub.publish(Bool(data=False))
         
         # Iniciar reloj para el tiempo:
         t = self.get_clock().now().nanoseconds * 1e-9
@@ -292,11 +346,16 @@ class SimpleGoalController(Node):
             xm += x0
             ym += y0
             
+            self.publish_tracked_path()
             metrics = self.add_metrics()
-            self.print_metrics(metrics)
+            self.send_metrics(metrics)
             
             # ---- CIERRE LIMPIO ----
-            self.get_logger().info("Finalizando nodo...")
+            self.get_logger().info("Finalizando tracker, trayectoria terminada")
+            self.tracker_done_pub.publish(Bool(data=True))
+            
+            time.sleep(0.2)
+            
             self.destroy_node()
             rclpy.shutdown()
             return
@@ -318,7 +377,7 @@ class SimpleGoalController(Node):
         # ===============================
         s_clamped = np.clip(s, 0.0, seg_len)
         closest_point = np.array(p0) + s_clamped * seg_dir
-        
+        self.tracked_path.append((closest_point[0], closest_point[1]))
         
         #Estados
         e_lat, e_theta_path = self.compute_errors(robot_pos, seg_dir, closest_point, yaw)
@@ -374,7 +433,6 @@ class SimpleGoalController(Node):
         j_d_pub = float(self.J_demanded)
         j_a_pub = float(self.J_applied)
         j_s_pub = float(self.J_states)
-
         # --- Publicación ROS2 ---
         self.pub_P_sat.publish(Float64(data=P_sat_pub))
         self.pub_dP_sat.publish(Float64(data=dP_sat_pub))
@@ -393,6 +451,8 @@ class SimpleGoalController(Node):
         # ===============================
         # 7. PUBLICAR COMANDO
         # ===============================
+        
+        cmd = self.add_actuator_noise(cmd)
         self.pub_cmd.publish(cmd)
     
     def update_cost(self, x_states, u_raw, w, dt):
@@ -433,6 +493,21 @@ class SimpleGoalController(Node):
 
     def normalize_angle(self, angle):
         return (angle + math.pi) % (2 * math.pi) - math.pi
+        
+    def publish_tracked_path(self):
+        msg = Path()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = "map"
+
+        for p in self.tracked_path:
+            pose = PoseStamped()
+            pose.header = msg.header
+            pose.pose.position.x = p[0]
+            pose.pose.position.y = p[1]
+            pose.pose.orientation.w = 1.0
+            msg.poses.append(pose)
+
+        self.tracked_pub.publish(msg)
     
     def add_metrics(self):
              
@@ -450,26 +525,11 @@ class SimpleGoalController(Node):
         return metrics
         
         
-    def print_metrics(self, metrics):
-        self.get_logger().info("===== MÉTRICAS =====")
-        for k, v in metrics.items():
-            self.get_logger().info(f"{k}: {v}")
+    def send_metrics(self, metrics):        
+        msg = String()
+        msg.data = json.dumps(metrics)
         
-            # Guardar en CSV
-        self.save_metrics_csv(metrics)
-            
-    def save_metrics_csv(self, metrics, filename="metrics_tracker.csv"):
-        self.get_logger().info("Guardando métricas en csv")
-        file_exists = os.path.isfile(filename)
-
-        with open(filename, "a", newline="") as csvfile:
-            writer = csv.DictWriter(csvfile, fieldnames=metrics.keys())
-
-            # Escribe el header SOLO si el archivo no existía
-            if not file_exists:
-                writer.writeheader()
-
-            writer.writerow(metrics)
+        self.metrics_pub.publish(msg)
         
 def main(args=None):
     rclpy.init(args=args)
@@ -484,11 +544,9 @@ def main(args=None):
 
     except RuntimeError as e:
         if "Context must be initialized" in str(e):
-            print("[INFO] Nodo finalizado")
+            pass
         else:
-            raise e  # errores reales NO se ocultan
-    finally:
-        print('Ejecución Finalizada')
+            raise e
 
 
 if __name__ == '__main__':

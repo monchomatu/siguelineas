@@ -1,6 +1,7 @@
 import numpy as np
-from path_makers.planning.Bit_Map import BitmapMap   # tu clase
-
+from path_makers.planning.Bit_Map import BitmapMap
+from ament_index_python.packages import get_package_share_directory
+import os
 
 
 def extract_path_from_edges(edges, start_point):
@@ -63,7 +64,17 @@ def compute_rrt_path(start_point, yawm, goal_point, robot_map_pose):
     # ===============================
     # Cargar mapa
     # ===============================
-    bitmap = BitmapMap("/home/ramon/siguelineas/src/path_makers/path_makers/planning/cave.png", world_size=16.0)
+    pkg_dir = get_package_share_directory('stage_utils')
+
+    bitmap_path = os.path.join(
+        pkg_dir,
+        'world',
+        'bitmaps',
+        'cave.png'
+    )
+
+    bitmap = BitmapMap(bitmap_path, world_size=16.0)
+    
     #Tamaño en stage del robot según documentación = 0.511
     bitmap.inflate(robot_radius=0.3)
     #Definir Starting Point

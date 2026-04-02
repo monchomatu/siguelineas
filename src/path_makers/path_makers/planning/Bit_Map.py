@@ -140,3 +140,6 @@ class BitmapMap:
         plt.title("Bitmap Map (ocupado = negro)")
         plt.grid(False)
         plt.show()
+    
+    def give_map(self):
+        return self.occ_grid, self.half_size

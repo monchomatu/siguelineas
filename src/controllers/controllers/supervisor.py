@@ -7,21 +7,30 @@ from nav_msgs.msg import Path
 import math
 import numpy as np
 #Librerías para publicar con teclado
-from std_msgs.msg import Float64, Bool
+from pathlib import Path as dirpath
+from std_msgs.msg import Float64, Bool, Int32
 import sys
 import termios
 import tty
 import csv
 import os
 
+import json
+from std_msgs.msg import String
+
 
 class Supervisor(Node):
 
     def __init__(self):
         super().__init__('supervisor')
+        
+        self.declare_parameter("use_replan", True)
+        self.use_replan = self.get_parameter("use_replan").value
+        
+        self.results_dir = dirpath("results")
+        self.tracker_metrics = {}
         # ===== LOGGERS ======
         self.time_log = []
-        self.dist_log = []
         self.x_log = []
         self.y_log = []
         self.lateral_errors = []
@@ -49,9 +58,13 @@ class Supervisor(Node):
         self.out_log = []
         
         # ===== LQR =======
-        self.umbral_dp = 3.277 # con replan
-        #self.umbral_dp = 15000 # sin replan
+        if self.use_replan:
+            self.umbral_dp = 3.277 # con replan
+        else:
+            self.umbral_dp = 15000 # sin replan
+            
         self.replan_active = False   # ← latch
+        self.tracker_done = False
 
         
         
@@ -80,8 +93,8 @@ class Supervisor(Node):
         )
         
         self.obstacle_sub = self.create_subscription(
-            Bool,
-            '/nav/obstacle_detected',
+            Int32, 
+            '/nav/obstacle_dir', 
             self.obstacle_callback,
             10
         )
@@ -100,6 +113,28 @@ class Supervisor(Node):
             10
         )
 
+        self.tracker_metrics = None
+        self.tracker_metrics_sub = self.create_subscription(
+            String,
+            "/tracker_metrics",
+            self.tracker_metrics_cb,
+            10
+        )
+        
+        self.tracker_done_sub = self.create_subscription(
+            Bool,
+            '/nav/tracker_finalized',
+            self.tracker_done_cb,
+            10
+        )
+        
+        self.stuck_sub = self.create_subscription(
+            Bool,
+            '/nav/stuck',
+            self.stuck_cb,
+            10
+        )
+        
         #Publishers
         self.ctrl_pub = self.create_publisher(
             Bool,
@@ -114,20 +149,31 @@ class Supervisor(Node):
         )
         
         self.escape_pub = self.create_publisher(
-            Bool,
+            Int32,
             '/nav/escape_request',
             10
         )
-
+        
+        self.shutdown_pub = self.create_publisher(
+            Bool,
+            '/nav/execution_finalized',
+            10
+        )
 
         self.get_logger().info("Supervisor listo")
 
-
+    def stuck_cb(self, msg):
+        if msg.data == True:
+            self.shutdown_pub.publish(Bool(data=True))
+            self.get_logger().warn(f"Finalizando nodo por stuck {msg.data}")
+            self.destroy_node()
+            rclpy.shutdown()
+            return
     # FUNCIONES DE ESCAPE
     def escape_done_cb(self, msg):
         self.escape_routine_finished = msg.data
         if self.escape_routine_finished:    
-            self.escape_pub.publish(Bool(data=False))
+            self.escape_pub.publish(Int32(data=0))
             self.ctrl_pub.publish(Bool(data=False))
             self.replan_pub.publish(Bool(data=True))
             
@@ -136,7 +182,32 @@ class Supervisor(Node):
             self.replan_requested = True
             self.path_received = False
             self.retake_path = False
+    
+    def obstacle_callback(self, msg):
+        if (msg.data > 0) and not self.obstacle_active:
             
+            if msg.data == 1:
+                self.escape_pub.publish(Int32(data=1))
+                self.obstacle_active = True
+            elif msg.data == 2:
+                self.escape_pub.publish(Int32(data=2))
+                self.obstacle_active = True
+            elif msg.data == 3:
+                self.escape_pub.publish(Int32(data=3))
+                self.obstacle_active = True
+            else:
+                self.get_logger().warn(f"Error de publicación lidar")
+            
+            if self.escape_routine_finished == False:
+                self.get_logger().info(f"Obstáculo detectado: iniciando maniobras de evasión de flanco: {msg.data}")
+                self.replan_requested = True # para contar los segmentos totales
+                self.path_received = False # para bloquear odometría
+                self.retake_path = False # bloquear odometría
+        else:
+            self.obstacle_active = False
+        
+            
+    #==========================================================
     # Función de replan por umbral
     def dp_sat_cb(self, msg):
         if self.replan_active:
@@ -153,63 +224,45 @@ class Supervisor(Node):
             self.replan_requested = True # para contar los segmentos totales
             self.path_received = False # para bloquear odometría
             self.retake_path = False # bloquear odometría
-    
-    def obstacle_callback(self, msg):
-        if msg.data and not self.obstacle_active:
-            if self.escape_routine_finished == False:
-                self.obstacle_active = True
-                self.escape_pub.publish(Bool(data=True))
-                
-                self.get_logger().info(f"Obstáculo detectado: iniciando maniobras de evasión")
-                self.replan_requested = True # para contar los segmentos totales
-                self.path_received = False # para bloquear odometría
-                self.retake_path = False # bloquear odometría
-        
-            
-    #==========================================================
+
     def path_callback(self, msg: Path):
         if self.path_received:
             return
         if self.obstacle_active:
-            self.get_logger().info(f"Path cb, escape acabado: {self.escape_routine_finished}, obstáculo activo: {self.obstacle_active}")
+            self.get_logger().warn(f"Escape acabado: {self.escape_routine_finished}, obstáculo activo: {self.obstacle_active}")
             return
         
-        self.path_points = []
+        # Convertir path a lista de puntos
+        self.path_points = [(pose.pose.position.x, pose.pose.position.y) for pose in msg.poses]
         
-
-        for pose in msg.poses:
-            x = pose.pose.position.x
-            y = pose.pose.position.y
-            self.path_points.append((x, y))
-            
-        #-------------------------------------------------
         start_point = self.path_points[0]
         current = self.current_segment
-        #Guardar los segmentos sólo hasta el último recorrido e interrumpido en el punto start_point
+
+        # Si se pidió replan, actualizar total_segments con seguridad
         if self.replan_requested:
-            for m in range(current-1):
-                self.total_segments.append(self.segments[m])
-            self.total_segments.append((self.segments[current][0], start_point))
+            if hasattr(self, 'segments') and len(self.segments) > 0:
+                # Solo agregar segmentos válidos
+                for m in range(min(current-1, len(self.segments))):
+                    self.total_segments.append(self.segments[m])
+                
+                if 0 <= current < len(self.segments):
+                    self.total_segments.append((self.segments[current][0], start_point))
+                else:
+                    self.get_logger().warn(f"current index {current} fuera de rango para segmentos ({len(self.segments)})")
+            else:
+                self.get_logger().warn("No hay segmentos anteriores para replanificar.")
             self.replan_requested = False
-        #------------------------------------------------
-        
-        # Construcción de segmentos
-        self.segments = []
-        for i in range(len(self.path_points) - 1):
-            p0 = self.path_points[i]
-            p1 = self.path_points[i + 1]
-            self.segments.append((p0, p1))
-        
+
+        # Reconstruir segmentos del nuevo path
+        self.segments = [(self.path_points[i], self.path_points[i+1]) for i in range(len(self.path_points)-1)]
         
         self.current_segment = 0
         self.path_received = True
         self.replan_requested = False
 
-        self.get_logger().info(
-            f"Path recibido, iniciando marcha"
-        )
+        self.get_logger().info("Path recibido, iniciando marcha")
         
-        #Reanudar marcha
+        # Reanudar marcha
         self.ctrl_pub.publish(Bool(data=True))
         self.retake_path = True
         self.obstacle_active = False
@@ -233,37 +286,43 @@ class Supervisor(Node):
         
         #Delegar
         self.step_supervisor(x, y, yaw, t)
-
     
-    # =================
-    # SUPERVISOR
-    # =================
-    def step_supervisor(self, x, y, yaw, t):
-        
-        # SELECCIÓN DE WAYPOINT ACTIVO
-        if self.current_segment >= len(self.segments):
+    def tracker_done_cb(self, msg):
+         # SELECCIÓN DE WAYPOINT ACTIVO
+        self.tracker_done = msg.data
+        if self.tracker_done:
             # Trayectoria terminada
             self.get_logger().info("Trayectoria completada")
+            self.current_segment = len(self.segments)
+
             
             #===== PUBLICAR MÉTRICAS =====
             metrics = self.compute_metrics()
             self.print_metrics(metrics)
             
             # ---- CIERRE LIMPIO ----
+            self.shutdown_pub.publish(Bool(data=True))
             self.get_logger().info("Finalizando nodo...")
             self.destroy_node()
             rclpy.shutdown()
             return
+    
+    # =================
+    # SUPERVISOR
+    # =================
+    def step_supervisor(self, x, y, yaw, t):
+        
+        if self.current_segment >= len(self.segments):
+            return
             
+        self.shutdown_pub.publish(Bool(data=False))
+        
         # CREACIÓN DE SEGMENTOS
         p0, p1 = self.segments[self.current_segment]
         self.x_g, self.y_g = p1
         
-        # diferencial de distancia recorrida
-        dx = self.x_g - x
-        dy = self.y_g - y
-        d = math.sqrt(dx**2 + dy**2)
-        
+        #==========================================================
+        # Progreso de distancia del robot proyectado en el segmento
         seg_vec = np.array(p1) - np.array(p0)
         seg_len = np.linalg.norm(seg_vec)
         seg_dir = seg_vec / seg_len
@@ -271,9 +330,9 @@ class Supervisor(Node):
         robot_pos = np.array([x, y])
         robot_vec = robot_pos - np.array(p0)
         s = np.dot(robot_vec, seg_dir)
-        
+        #==========================================================
         # ===============================
-        # Saturación de proyección
+        # Clamp de proyección dentro del segmento
         # ===============================
         s_clamped = np.clip(s, 0.0, seg_len)
         closest_point = np.array(p0) + s_clamped * seg_dir
@@ -307,9 +366,11 @@ class Supervisor(Node):
         # ===============================
         # Observación del tracker
         # ===============================
-                
-        if (s >= seg_len - self.s_tol):                       
-            # FINAL ALCANZADO
+        
+        robot_to_end = np.linalg.norm(robot_pos - np.array(p1))
+        
+        if (robot_to_end < self.s_tol) or (s >= seg_len):                      
+            # FINAL DE SEGMENTO ALCANZADO
             # GUARDAR Y REINICIAR VALORES DE SEGMENTO
             self.current_segment += 1
             #Agregar los nuevos errores laterales por segmento
@@ -323,7 +384,6 @@ class Supervisor(Node):
         self.lateral_errors.append(e_lat)
         self.angular_errors.append(abs(e_theta_path))
         self.time_log.append(t)
-        self.dist_log.append(d)
         self.x_log.append(x)
         self.y_log.append(y)
     
@@ -431,8 +491,12 @@ class Supervisor(Node):
         # ERROR LATERAL MÁXIMO
         metrics["max_lateral_error"] =max(np.abs(self.lateral_errors))
         
+        combined_metrics = {**self.tracker_metrics, **metrics}
 
-        return metrics
+        return combined_metrics
+    
+    def tracker_metrics_cb(self, msg):
+        self.tracker_metrics = json.loads(msg.data)
         
     def print_metrics(self, metrics):
         self.get_logger().info("===== MÉTRICAS =====")
@@ -442,28 +506,37 @@ class Supervisor(Node):
             # Guardar en CSV
         self.save_metrics_csv(metrics)
             
-    def save_metrics_csv(self, metrics, filename="metrics_supervisor.csv"):
-        file_exists = os.path.isfile(filename)
 
-        with open(filename, "a", newline="") as csvfile:
+    def save_metrics_csv(self, metrics):
+        
+        if self.use_replan:
+            filename="replan_metrics.csv"
+        else:
+            filename="no_replan_metrics.csv"
+            
+        self.results_dir.mkdir(parents=True, exist_ok=True)
+
+        filepath = self.results_dir / filename
+
+        file_exists = filepath.is_file()
+
+        with open(filepath, "a", newline="") as csvfile:
             writer = csv.DictWriter(csvfile, fieldnames=metrics.keys())
 
-            # Escribe el header SOLO si el archivo no existía
+            # Escribe header solo si el archivo no existía
             if not file_exists:
                 writer.writeheader()
 
             writer.writerow(metrics)
+        self.get_logger().warn("Publicando resultados")
 
 
 def main(args=None):
     rclpy.init(args=args)
     node = Supervisor()
-    
+        
     try:
-        rclpy.spin(node)    
-    finally:
-        print('Ejecución Finalizada')
-    try:
+        rclpy.spin(node)
         node.destroy_node()
         rclpy.shutdown()
         
@@ -472,11 +545,11 @@ def main(args=None):
 
     except RuntimeError as e:
         if "Context must be initialized" in str(e):
-            print("[INFO] Nodo finalizado")
+            pass
         else:
-            raise e  # ❗ errores reales NO se ocultan
-    finally:
-        print('Nodo Cerrado')
+            raise e  # errores reales NO se ocultan
+
+        
 
 if __name__ == '__main__':
     main()

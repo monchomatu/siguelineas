@@ -21,3 +21,4 @@ venv/
 # External dependencies
 src/Stage/
 src/stage_ros2/
+results/

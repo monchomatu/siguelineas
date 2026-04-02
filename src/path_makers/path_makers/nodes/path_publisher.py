@@ -26,11 +26,18 @@ class PathPublisher(Node):
             self.odom_callback,
             10
         )
-        #Subscriber a replan
+        #Subscribers
         self.create_subscription(
             Bool,
             '/nav/replan_request',
             self.replan_cb,
+            10
+        )
+        
+        self.shutdown_sub = self.create_subscription(
+            Bool,
+            '/nav/execution_finalized',
+            self.shutdown_callback,
             10
         )
 
@@ -91,7 +98,12 @@ class PathPublisher(Node):
         
     #============================================
 
-
+    def shutdown_callback(self, msg):
+        if msg.data == True:
+            self.get_logger().info("Finalizando publicador de trayectoria...")
+            self.destroy_node()
+            rclpy.shutdown()
+            return
        
     def odom_callback(self, msg: Odometry):
 
@@ -136,9 +148,20 @@ class PathPublisher(Node):
 def main(args=None):
     rclpy.init(args=args)
     node = PathPublisher()
-    rclpy.spin(node)
-    node.destroy_node()
-    rclpy.shutdown()
+    
+    try:
+        rclpy.spin(node)
+        node.destroy_node()
+        rclpy.shutdown()
+        
+    except KeyboardInterrupt:
+        node.get_logger().info("Interrupción por teclado. Cerrando nodo...")
+
+    except RuntimeError as e:
+        if "Context must be initialized" in str(e):
+            pass
+        else:
+            raise e  # errores reales NO se ocultan
 
 
 if __name__ == '__main__':
