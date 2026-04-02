@@ -80,9 +80,8 @@ Se agradece a sus respectivos autores por el desarrollo de estas herramientas.
 
 ## Licencia y créditos
 
-Este proyecto hace uso de software de terceros. Cada dependencia mantiene su propia licencia, la cual debe ser respetada.
+Este proyecto hace uso de software de terceros. Cada dependencia mantiene su propia licencia, la cual debe ser respetada. Para más información, consultar los repositorios originales.
 
-Para más información, consultar los repositorios originales.
 ---
 
 ## Autor
