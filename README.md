@@ -1,6 +1,8 @@
 # Siguelíneas - Simulación con ROS2 y Stage
 
-Este repositorio implementa un sistema de navegación reactiva basado en RRT para un robot tipo uniciclo en simulación usando Stage y ROS2.
+Este repositorio implementa un sistema de navegación reactiva basado en RRT para un robot tipo uniciclo en simulación usando Stage y ROS2 Jazzy.
+
+Ejecutar source install/setup.bash en cada nueva terminal
 
 ---
 
@@ -56,4 +58,13 @@ El siguiente comando tiene la sintáxis para correr múltiples experimentos:
 ```bash 
 ./run_experiments.sh 1 1 false
 ```
-
+---
+## Estructura del proyecto
+- stage_utils: mundos, mapas y configuraciones RViz modificados del original stage_ros2
+- path_makers: planificación de trayectorias y publicación de recorrido
+- controllers: control y monitoreo de navegación del robot y launchers
+- perception: procesamiento de sensores
+- En cada ejecución se creará una carpeta llamada results con un csv de las métricas de la corrida y una imágen del recorrido
+---
+## Autor
+Ramón Herrera
