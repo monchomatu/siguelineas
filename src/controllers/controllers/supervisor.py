@@ -6,12 +6,10 @@ from nav_msgs.msg import Odometry
 from nav_msgs.msg import Path
 import math
 import numpy as np
-#Librerías para publicar con teclado
+
 from pathlib import Path as dirpath
 from std_msgs.msg import Float64, Bool, Int32
-import sys
-import termios
-import tty
+
 import csv
 import os
 
@@ -36,8 +34,6 @@ class Supervisor(Node):
         self.lateral_errors = []
         self.angular_errors = []
         self.e_theta_current = []
-        self.tol_reached = False
-        self.settle_times = []
         self.settle_t = None
         
 
@@ -63,7 +59,7 @@ class Supervisor(Node):
         else:
             self.umbral_dp = 15000 # sin replan
             
-        self.replan_active = False   # ← latch
+        self.replan_active = False   # latch
         self.tracker_done = False
 
         
@@ -74,10 +70,9 @@ class Supervisor(Node):
 
         # ===== TOLERANCIAS =====
         self.s_tol = 0.1
-        self.angle_tol = 0.2
         self.lat_tol = 0.1
 
-        # Subscribers 
+        # ============ SUBSCRIBERS ===============
         self.sub_odom = self.create_subscription(
             Odometry,
             '/odom',
@@ -135,7 +130,7 @@ class Supervisor(Node):
             10
         )
         
-        #Publishers
+        # =========== PUBLISHERS =============
         self.ctrl_pub = self.create_publisher(
             Bool,
             '/nav/enable_controller',
@@ -169,7 +164,10 @@ class Supervisor(Node):
             self.destroy_node()
             rclpy.shutdown()
             return
-    # FUNCIONES DE ESCAPE
+            
+    # =================== FUNCIONES DE ESCAPE ==========================
+    # ==================================================================
+    
     def escape_done_cb(self, msg):
         self.escape_routine_finished = msg.data
         if self.escape_routine_finished:    
@@ -207,11 +205,12 @@ class Supervisor(Node):
             self.obstacle_active = False
         
             
-    #==========================================================
-    # Función de replan por umbral
+    #===================================================================
+    
+    # ====================== REPLANIFICACIÓN POR UMBRAL =============================
     def dp_sat_cb(self, msg):
         if self.replan_active:
-            return  # ya disparó, no repetir
+            return  # ya disparó replan, no repetir
 
         if msg.data >= self.umbral_dp:
             self.replan_active = True
@@ -224,6 +223,7 @@ class Supervisor(Node):
             self.replan_requested = True # para contar los segmentos totales
             self.path_received = False # para bloquear odometría
             self.retake_path = False # bloquear odometría
+
 
     def path_callback(self, msg: Path):
         if self.path_received:
@@ -238,7 +238,7 @@ class Supervisor(Node):
         start_point = self.path_points[0]
         current = self.current_segment
 
-        # Si se pidió replan, actualizar total_segments con seguridad
+        # Si se pidió replan, actualizar total_segments
         if self.replan_requested:
             if hasattr(self, 'segments') and len(self.segments) > 0:
                 # Solo agregar segmentos válidos
@@ -271,7 +271,7 @@ class Supervisor(Node):
     def odom_callback(self, msg: Odometry):
         if not self.path_received:
             return
-        #No iniciar el reloj hasta volver a avanzar
+        # No iniciar el reloj hasta volver a avanzar
         if self.retake_path == False:
             return
             
@@ -279,16 +279,16 @@ class Supervisor(Node):
         t = self.get_clock().now().nanoseconds * 1e-9
 
         
-        #ESTADO ACTUAL
+        # Estado actual
         x = msg.pose.pose.position.x
         y = msg.pose.pose.position.y
         yaw = self.get_yaw(msg.pose.pose.orientation)
         
-        #Delegar
+        # Llamada a función supervisor
         self.step_supervisor(x, y, yaw, t)
     
     def tracker_done_cb(self, msg):
-         # SELECCIÓN DE WAYPOINT ACTIVO
+        # SELECCIÓN DE WAYPOINT ACTIVO
         self.tracker_done = msg.data
         if self.tracker_done:
             # Trayectoria terminada
@@ -300,16 +300,15 @@ class Supervisor(Node):
             metrics = self.compute_metrics()
             self.print_metrics(metrics)
             
-            # ---- CIERRE LIMPIO ----
+            # ========= CIERRE ============
             self.shutdown_pub.publish(Bool(data=True))
             self.get_logger().info("Finalizando nodo...")
             self.destroy_node()
             rclpy.shutdown()
             return
     
-    # =================
-    # SUPERVISOR
-    # =================
+    # ======================== SUPERVISOR =============================
+    # =================================================================
     def step_supervisor(self, x, y, yaw, t):
         
         if self.current_segment >= len(self.segments):
@@ -321,7 +320,6 @@ class Supervisor(Node):
         p0, p1 = self.segments[self.current_segment]
         self.x_g, self.y_g = p1
         
-        #==========================================================
         # Progreso de distancia del robot proyectado en el segmento
         seg_vec = np.array(p1) - np.array(p0)
         seg_len = np.linalg.norm(seg_vec)
@@ -330,32 +328,29 @@ class Supervisor(Node):
         robot_pos = np.array([x, y])
         robot_vec = robot_pos - np.array(p0)
         s = np.dot(robot_vec, seg_dir)
-        #==========================================================
-        # ===============================
+
         # Clamp de proyección dentro del segmento
-        # ===============================
         s_clamped = np.clip(s, 0.0, seg_len)
         closest_point = np.array(p0) + s_clamped * seg_dir
         
         
-        # ERROR LATERAL Y ANGULAR
+        # ====================== ERROR LATERAL Y ANGULAR ================================
         e_lat, e_theta_path = self.compute_errors(robot_pos, seg_dir, closest_point, yaw)
         
-        # LOG PARA MÉTRICAS
+        # LOG PARA DEBUG
         #self.get_logger().info(f"segment={self.current_segment}, d={(seg_len - s):.2f}, e_theta={e_theta_path:.2f}, e_lat:{e_lat:.2f}")
-        #============================================
-        
-        # ===============================
-        # MÉTRICA DE RECUPERACIÓN LATERAL
-        # ===============================
 
-        # --- Entrada a desviación ---
+        
+        # ============== MÉTRICA DE SETTLE LATERAL ====================
+        # =============================================================
+
+        # Entrada a desviación
         if not self.out_event_active and abs(e_lat) > self.lat_tol:
             self.out_event_active = True
             self.out_start_time = t
             self.out_events += 1
 
-        # --- Salida de desviación ---
+        # Salida de desviación
         elif self.out_event_active and abs(e_lat) < (0.5 * self.lat_tol):
             out_dt = t - self.out_start_time
             self.total_out_time += out_dt
@@ -363,9 +358,8 @@ class Supervisor(Node):
             self.out_event_active = False
             self.out_start_time = None
 
-        # ===============================
-        # Observación del tracker
-        # ===============================
+        # ============= Observación del tracker =================
+        # =======================================================
         
         robot_to_end = np.linalg.norm(robot_pos - np.array(p1))
         
@@ -376,7 +370,7 @@ class Supervisor(Node):
             #Agregar los nuevos errores laterales por segmento
             self.e_theta_current = []
             self.settle_t = None
-            self.tol_reached = False
+            
     
         
         # GUARDAR VALORES HISTÓRICOS
@@ -388,7 +382,7 @@ class Supervisor(Node):
         self.y_log.append(y)
     
     
-    # ===== UTILS =====
+    # ==================== UTILS =====================
 
     def get_yaw(self, q):
         siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
@@ -399,7 +393,7 @@ class Supervisor(Node):
         return (angle + math.pi) % (2 * math.pi) - math.pi
         
         
-    # ===== Calcular error lateral y angular =====
+    # Calcular error lateral y angular
     
     def compute_errors(self, robot_pos, seg_dir, closest_point, yaw):
     
@@ -414,15 +408,14 @@ class Supervisor(Node):
         
         metrics = {}
         
-        # ===============================
         # TIEMPO TOTAL DE CONVERGENCIA
         # ===============================
         total_time = self.time_log[-1] - self.time_log[0]
         metrics["Total_time"] = total_time
 
-        # ===============================
         # LONGITUD DE TRAYECTORIAS
         # ===============================
+        
         # Longitud planeada
         planned_length = 0.0
         if len(self.total_segments) == 0:
@@ -432,6 +425,7 @@ class Supervisor(Node):
                 planned_length += math.sqrt(pdx * pdx + pdy * pdy)
             metrics["Path_length no replan"] = planned_length
         else:
+        
             #recuperar los primeros puntos de todo el total_lentgh
             total_points = []
             for n in range(len(self.total_segments)):
@@ -452,7 +446,7 @@ class Supervisor(Node):
                 
             metrics["Path_length with replan"] = planned_length
         
-        # LONGITUD REAL
+        # =========== LONGITUD REAL ==============
         length = 0.0
         for i in range(1, len(self.x_log)):
             dx = self.x_log[i] - self.x_log[i - 1]
@@ -467,15 +461,15 @@ class Supervisor(Node):
         else:
             ratio = None
         metrics["Real_vs_planned_length"] = ratio
-        # ===============================
+        
+
         # RMSE LATERAL
-        # ===============================
         metrics["RMSE_lateral"] = np.sqrt(np.mean(np.square(self.lateral_errors)))
-        # ===============================
+
         # RMSE ANGULAR
-        # ===============================
         ang = np.array(self.angular_errors)
         metrics["RMSE_angular"] = np.sqrt(np.mean(ang ** 2))
+        
         #Settle times mean
         if self.out_events > 0:
             avg_settle_time = self.total_out_time / self.out_events
@@ -503,7 +497,7 @@ class Supervisor(Node):
         for k, v in metrics.items():
             self.get_logger().info(f"{k}: {v}")
         
-            # Guardar en CSV
+        # Guardar en CSV
         self.save_metrics_csv(metrics)
             
 
@@ -547,8 +541,7 @@ def main(args=None):
         if "Context must be initialized" in str(e):
             pass
         else:
-            raise e  # errores reales NO se ocultan
-
+            raise e
         
 
 if __name__ == '__main__':

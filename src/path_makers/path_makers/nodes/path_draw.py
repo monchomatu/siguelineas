@@ -26,7 +26,7 @@ class PathDraw(Node):
         self.use_replan = self.get_parameter("use_replan").value
         
         if self.use_replan:
-            #Guardado de traycetorias en png
+            # Guardado de traycetorias en png
             self.results_dir = dirpath("results/executed_paths/with_replan")
         else:
             self.results_dir = dirpath("results/executed_paths/no_replan")
@@ -42,13 +42,13 @@ class PathDraw(Node):
         self.executed_path.header.frame_id = 'odom'
         self.last_pose = None
         
-        #Crear una distancia mínima entre puntos para evitar ruido
+        # Crear una distancia mínima entre puntos para evitar ruido
         self.min_dist = 0.02
         
-        # ===== Publisher =====
+        # ============= Publisher =================
         self.pub_path = self.create_publisher(Path, '/executed_path', 10)
        
-       # ===== Subscriber a odometría =====
+       # =========== Subscribers ===========
         self.sub_odom = self.create_subscription(
             Odometry,
             '/odom',
@@ -96,7 +96,7 @@ class PathDraw(Node):
         x = msg.pose.pose.position.x
         y = msg.pose.pose.position.y
 
-        # FIltro de distancia mínima
+        # Filtro de distancia mínima
         if self.last_pose is not None:
             dx = x - self.last_pose[0]
             dy = y - self.last_pose[1]
@@ -108,7 +108,7 @@ class PathDraw(Node):
         pose.header.frame_id = 'odom'
         
         
-        # Guardamos las poses
+        # Guardar las poses
         pose.pose.position = msg.pose.pose.position
         pose.pose.orientation = msg.pose.pose.orientation
 

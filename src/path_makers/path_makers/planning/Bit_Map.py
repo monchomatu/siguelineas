@@ -13,23 +13,23 @@ class BitmapMap:
         self.world_size = world_size
         self.half_size = world_size / 2.0
 
-        # --- Leer imagen ---
+        # Leer imagen
         img = cv2.imread(png_path, cv2.IMREAD_GRAYSCALE)
         if img is None:
             raise RuntimeError(f"No se pudo cargar el mapa: {png_path}")
 
         self.height, self.width = img.shape
 
-        # --- Normalizar y binarizar ---
+        # Normalizar y binarizar
         img = img.astype(np.float32) / 255.0
         self.occ_grid = np.zeros_like(img, dtype=np.uint8)
         self.occ_grid[img < 0.5] = 1
 
-        # --- Resolución ---
+        # Resolución
         self.m_per_px = self.world_size / self.width
 
-    # =====================================================
-    # Conversión coordenadas
+
+    # =============== Conversión coordenadas ==============
     # =====================================================
 
     def world_to_pixel(self, x: float, y: float):
@@ -42,8 +42,7 @@ class BitmapMap:
         y = self.half_size - (py / self.height) * self.world_size
         return x, y
 
-    # =====================================================
-    # Consultas
+    # =================== Consultas =======================
     # =====================================================
 
     def in_bounds(self, x: float, y: float) -> bool:
@@ -63,10 +62,10 @@ class BitmapMap:
 
         return self.occ_grid[py, px] == 1
 
-    #Inflar
+    # Dilatar
     def inflate(self, robot_radius: float):
         """
-        Infla los obstáculos según el radio del robot.
+        Dilata los obstáculos según el radio del robot.
 
         Args:
             robot_radius: radio del robot en metros
@@ -117,15 +116,14 @@ class BitmapMap:
         unique, counts = np.unique(self.occ_grid, return_counts=True)
         return dict(zip(unique.tolist(), counts.tolist()))
 
-    # =====================================================
-    # Visualización
+    # ================== Visualización ====================
     # =====================================================
 
     def plot(self):
         plt.figure(figsize=(6, 6))
         plt.imshow(
             self.occ_grid,
-            cmap="gray_r",   # ← importante
+            cmap="gray_r",
             origin="upper",
             extent=[
                 -self.half_size,

@@ -19,14 +19,14 @@ class PathPublisher(Node):
         # ===== Publisher =====
         self.pub_path = self.create_publisher(Path, '/planned_path', 10)
        
-       # ===== Subscriber a odometría =====
+       # =========== Subscribers =============
         self.sub_odom = self.create_subscription(
             Odometry,
             '/odom',
             self.odom_callback,
             10
         )
-        #Subscribers
+
         self.create_subscription(
             Bool,
             '/nav/replan_request',
@@ -41,8 +41,6 @@ class PathPublisher(Node):
             10
         )
 
-        
-        # ===== Waypoints definidos manualmente =====
         self.robot_map_pose=(-7, -7, np.pi/4)
         start_point = (-7, -7)
         self.goal_point = (6, 4)
@@ -61,9 +59,9 @@ class PathPublisher(Node):
         goal_odom = self.final_path[-1]
 
         self.get_logger().info(f"PathPublisher inicializado a ground: {goal_ground} y odom: {goal_odom}")
-    #============================================
-    #Replanificación
-    #============================================
+
+    # ========= Replanificación ============
+    #=======================================
     def plan_from_pose(self):
         
         xo, yo, yawo = self.current_pose  # tomada de odom
@@ -71,7 +69,7 @@ class PathPublisher(Node):
         xm = np.cos(yaw0)*xo - np.sin(yaw0)*yo
         ym = np.sin(yaw0)*xo + np.cos(yaw0)*yo
 
-            # Traslación
+        # Traslación
         xm += x0
         ym += y0
         yawm = yaw0 + yawo
@@ -94,9 +92,6 @@ class PathPublisher(Node):
             return
         self.plan_from_pose()
         
-        
-        
-    #============================================
 
     def shutdown_callback(self, msg):
         if msg.data == True:
@@ -129,7 +124,6 @@ class PathPublisher(Node):
             pose.pose.position.y = y
             pose.pose.position.z = 0.0
 
-            # Orientación neutra (NO usamos yaw aquí)
             pose.pose.orientation.w = 1.0
 
             path.poses.append(pose)
@@ -161,7 +155,7 @@ def main(args=None):
         if "Context must be initialized" in str(e):
             pass
         else:
-            raise e  # errores reales NO se ocultan
+            raise e
 
 
 if __name__ == '__main__':

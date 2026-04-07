@@ -32,7 +32,7 @@ def generate_launch_description():
         description="Activar o desactivar ruido en actuadores"
     )
     
-    # -------- Stage launch --------
+    # ==================== Stage launch =======================
     stage_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(
@@ -48,7 +48,7 @@ def generate_launch_description():
     )
 
 
-    # -------- Controllers launch --------
+    # ============ Controllers launch ================
     controllers_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(

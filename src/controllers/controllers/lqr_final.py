@@ -13,15 +13,26 @@ from std_msgs.msg import Bool
 from std_msgs.msg import Float64, Int32
 
 from pathlib import Path as dirpath
-import csv
-import os
+
 
 import json
 from std_msgs.msg import String
 
 import time
 
+'''
+Matrices de linealización con las que se calcularon las ganancias K
 
+self.A = np.array([
+    [0.0, self.v],
+    [0.0, 0.0]
+])
+
+self.B = np.array([
+    [0.0],
+    [1.0]
+])
+'''
 class SimpleGoalController(Node):
     def __init__(self):
         super().__init__('simple_goal_controller')
@@ -38,7 +49,6 @@ class SimpleGoalController(Node):
         self.tracked_path = []
         
         # ====== ESCAPE ============
-        self.escape_start_time = 0.0
         self.escape_state = 0
         self.escape_start_time = None
         self.escape_active = False
@@ -58,16 +68,6 @@ class SimpleGoalController(Node):
         self.J_demanded = 0.0      # costo usando u_raw
         self.J_applied = 0.0      # costo usando u_sat (w)
         self.J_states = 0.0       # costo sólo de los estados
-        
-        self.A = np.array([
-            [0.0, self.v],
-            [0.0, 0.0]
-        ])
-
-        self.B = np.array([
-            [0.0],
-            [1.0]
-        ])
 
         # Matrices de costo
         self.Q = np.array([
@@ -85,10 +85,8 @@ class SimpleGoalController(Node):
 
         # ===== TOLERANCIAS =====
         self.s_tol = 0.05
-        self.angle_tol = 0.02
-        self.lat_tol = 0.01
         
-        # Subscribers 
+        # =========== SUBSCRIBERS =============== 
         self.sub_odom = self.create_subscription(
             Odometry,
             '/odom',
@@ -118,7 +116,7 @@ class SimpleGoalController(Node):
             10
         )
         
-        # Publishers
+        # ========= PUBLISHERS ===============
         self.pub_cmd = self.create_publisher(
             Twist,
             '/cmd_vel',
@@ -161,8 +159,8 @@ class SimpleGoalController(Node):
             f"LQR inicializado"
         )
     
+    # ======= FUNCIONES DE ESCAPE ========
     #=====================================
-    #Funciónes de escape
     def escape_cb(self, msg):
         
         if (msg.data > 0) and self.escape_state == 0:
@@ -187,8 +185,8 @@ class SimpleGoalController(Node):
         ESCAPE_TURN = 2
         ESCAPE_DONE = 3
         
-        giro = 1.0 #segundos
-        retroceso = 1.0 #segundos
+        giro = 1.0 # segundos
+        retroceso = 1.0 # segundos
         if self.escape_state == ESCAPE_BACK:
             if t - self.escape_start_time < retroceso:
                 cmd.linear.x = -0.6
@@ -232,17 +230,16 @@ class SimpleGoalController(Node):
 
         self.pub_cmd.publish(cmd)
         
+    #====================================================
     
-    #=====================================
-    
-    #ruido en actuadores
+    # ======= RUIDO EN ACTUADORES =============
+    # =========================================
     def add_actuator_noise(self, cmd: Twist()):
-        noise_percentage = 0.02 # 2%
+        noise_percentage = 0.02 # 2% de ruido
         if self.use_noise:
             linear_nominal = cmd.linear.x
             angular_nominal = cmd.angular.z
 
-            # 2% de ruido gaussiano
             cmd.linear.x = linear_nominal * (1 + np.random.normal(0, noise_percentage))
             cmd.angular.z = angular_nominal * (1 + np.random.normal(0, noise_percentage))
 
@@ -278,8 +275,8 @@ class SimpleGoalController(Node):
         self.replan_events += 1
 
     
-    #=====================================
-    # FUNCIONES DE STOP
+
+    # ======= FUNCIONES DE STOP ==========
     #=====================================
     def enable_cb(self, msg):
         self.enabled = msg.data
@@ -291,8 +288,8 @@ class SimpleGoalController(Node):
         self.pub_cmd.publish(cmd)
     #=====================================
     
-    # =======================================================
-    # ODOM CALLBACK A DEPURAR
+    
+    # ================ PROCESO PRINCIPAL ====================
     # =======================================================
     def odom_callback(self, msg: Odometry):
         if self.escape_active:
@@ -323,22 +320,18 @@ class SimpleGoalController(Node):
         self.get_yaw(msg.pose.pose.orientation)
         )
 
-        # ===============================
-        # 1. ESTADO ACTUAL
-        # ===============================
+        # ======= ESTADO ACTUAL =========
         x = msg.pose.pose.position.x
         y = msg.pose.pose.position.y
         yaw = self.get_yaw(msg.pose.pose.orientation)
         
-
-        # ===============================
-        # 2. SELECCIÓN DE WAYPOINT ACTIVO
-        # ===============================
+        
+        # ====== SELECCIÓN DE WAYPOINT ACTIVO ========
         if self.current_segment >= len(self.segments):
             # Trayectoria terminada
             self.pub_cmd.publish(Twist())
             
-            #Conversión a ground truth para validación
+            # Conversión a ground truth para validación
             x0, y0, yaw0 = (-7, -7, np.pi/4)
             xm = np.cos(yaw0)*x - np.sin(yaw0)*y
             ym = np.sin(yaw0)*x + np.cos(yaw0)*y
@@ -350,7 +343,7 @@ class SimpleGoalController(Node):
             metrics = self.add_metrics()
             self.send_metrics(metrics)
             
-            # ---- CIERRE LIMPIO ----
+            # ====================== CIERRE ====================================
             self.get_logger().info("Finalizando tracker, trayectoria terminada")
             self.tracker_done_pub.publish(Bool(data=True))
             
@@ -372,14 +365,14 @@ class SimpleGoalController(Node):
         robot_vec = robot_pos - np.array(p0)
         s = np.dot(robot_vec, seg_dir)
         
-        # ===============================
-        # Saturación de proyección
-        # ===============================
+
+        # ========== SATURACIÓN DE PROYECCIÓN  ==============
+        # ==================================================
         s_clamped = np.clip(s, 0.0, seg_len)
         closest_point = np.array(p0) + s_clamped * seg_dir
         self.tracked_path.append((closest_point[0], closest_point[1]))
         
-        #Estados
+        # Estados
         e_lat, e_theta_path = self.compute_errors(robot_pos, seg_dir, closest_point, yaw)
         
         
@@ -406,6 +399,7 @@ class SimpleGoalController(Node):
         
         
         #============ Métricas de saturación ==========
+        
         # Error por saturación
         e_sat = u_raw - w
 
@@ -423,7 +417,7 @@ class SimpleGoalController(Node):
 
         self.P_sat_prev = P_sat
         
-        # --- CAST EXPLÍCITO (CRÍTICO) ---
+        # ======== CAST EXPLÍCITO ===========
         P_sat_pub   = float(P_sat)
         dP_sat_pub  = float(dP_sat)
         E_sat_pub   = float(self.E_sat_total)
@@ -433,7 +427,8 @@ class SimpleGoalController(Node):
         j_d_pub = float(self.J_demanded)
         j_a_pub = float(self.J_applied)
         j_s_pub = float(self.J_states)
-        # --- Publicación ROS2 ---
+        
+        # ============ Publicación ROS2 ===============
         self.pub_P_sat.publish(Float64(data=P_sat_pub))
         self.pub_dP_sat.publish(Float64(data=dP_sat_pub))
         self.pub_E_sat.publish(Float64(data=E_sat_pub))
@@ -444,14 +439,11 @@ class SimpleGoalController(Node):
         self.pub_j_a.publish(Float64(data=j_a_pub))
         self.pub_j_s.publish(Float64(data=j_s_pub))
         
-        # ======= Mover robot ===========
+        # Mover robot
         cmd.linear.x = self.v
         cmd.angular.z = w
         
-        # ===============================
-        # 7. PUBLICAR COMANDO
-        # ===============================
-        
+        # ===== PUBLICAR COMANDO =========        
         cmd = self.add_actuator_noise(cmd)
         self.pub_cmd.publish(cmd)
     
@@ -473,7 +465,7 @@ class SimpleGoalController(Node):
 
         return j_raw.item(), j_sat.item(), j_states.item()
     
-    #Computar estados
+    # Computar estados
     def compute_errors(self, robot_pos, seg_dir, closest_point, yaw):
     
         e_lat = np.cross(seg_dir, robot_pos - closest_point)
@@ -484,7 +476,7 @@ class SimpleGoalController(Node):
         return e_lat, e_theta_path
         
 
-    # ===== UTILS =====
+    # ========= FUNCIONES ÚTILES =====================
 
     def get_yaw(self, q):
         siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
@@ -508,7 +500,9 @@ class SimpleGoalController(Node):
             msg.poses.append(pose)
 
         self.tracked_pub.publish(msg)
+    # ========================================================
     
+    # ============== FUNCIONES DE GUARDADO DE MÉTRICAS ==========================
     def add_metrics(self):
              
         metrics = {}
@@ -531,6 +525,8 @@ class SimpleGoalController(Node):
         
         self.metrics_pub.publish(msg)
         
+     # ===========================================================================
+     
 def main(args=None):
     rclpy.init(args=args)
     node = SimpleGoalController()

@@ -1,4 +1,3 @@
-#Código para el nodo del LIDAR
 import rclpy
 from rclpy.node import Node
 import math
@@ -11,7 +10,7 @@ class LidarMonitor(Node):
     def __init__(self):
         super().__init__('lidar_monitor')
         
-        self.safe_distance = 0.3        # [m]
+        self.safe_distance = 0.3        # metros
         self.front_angle = math.radians(80)  # +-x grados
         
         self.obstacle_state = False     # estado confirmado
@@ -25,7 +24,7 @@ class LidarMonitor(Node):
         
         self.r_sum_prev = 0.0
         
-        #suscriptor
+        # ========== Subscribers =============
         self.sub_scan = self.create_subscription(
             LaserScan,
             '/base_scan',
@@ -41,7 +40,7 @@ class LidarMonitor(Node):
         )
         
         
-        #Publicador        
+        # =========== Publishers ==============      
         self.obstacle_pub = self.create_publisher(
             Int32, 
             '/nav/obstacle_dir', 
@@ -79,7 +78,7 @@ class LidarMonitor(Node):
 
         for r in msg.ranges:
             r_sum += r
-            # ¿Este rayo está dentro del frente?
+            # ¿Este rayo está dentro del rango de ángulo?
             if abs(angle) <= self.front_angle:
                 # Validar medición
                 if math.isfinite(r):
@@ -108,8 +107,7 @@ class LidarMonitor(Node):
             self.stuck_since = None
             self.stuck_pub.publish(Bool(data=False))
         
-         # 2. Histéresis temporal
-        # -------------------------
+         # Histéresis temporal
         if obstacle_detected:
             self.clear_since = None
             

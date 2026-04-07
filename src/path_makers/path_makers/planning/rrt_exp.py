@@ -42,7 +42,7 @@ def map_path_to_odom(path_map, robot_map_pose):
     robot_map_pose: (x0, y0, yaw0) en mapa
     """
     x0, y0, yaw0 = robot_map_pose
-    theta = -yaw0  # des-rotar
+    theta = -yaw0  # rotar
 
     path_odom = []
 
@@ -61,9 +61,7 @@ def map_path_to_odom(path_map, robot_map_pose):
 
 def compute_rrt_path(start_point, yawm, goal_point, robot_map_pose):
 
-    # ===============================
     # Cargar mapa
-    # ===============================
     pkg_dir = get_package_share_directory('stage_utils')
 
     bitmap_path = os.path.join(
@@ -75,9 +73,9 @@ def compute_rrt_path(start_point, yawm, goal_point, robot_map_pose):
 
     bitmap = BitmapMap(bitmap_path, world_size=16.0)
     
-    #Tamaño en stage del robot según documentación = 0.511
+    # Tamaño en stage del robot según documentación = 0.511
     bitmap.inflate(robot_radius=0.3)
-    #Definir Starting Point
+    # Definir Starting Point
     goal_radius = 1.0
     near = (0,0)
     p = start_point
@@ -87,13 +85,11 @@ def compute_rrt_path(start_point, yawm, goal_point, robot_map_pose):
     nodes.append(start_point)
     step_size = 0.5
 
-    #Auxiliares
+    # Auxiliares
     SAMPLES = 500
     STEP_DELAY = 0.01
     
-    # ===============================
     # Nodo inicial orientado por yaw
-    # ===============================
     theta_max = np.deg2rad(50)
     first_node = None
     d = step_size
@@ -114,9 +110,7 @@ def compute_rrt_path(start_point, yawm, goal_point, robot_map_pose):
         nodes.append(first_node)
         edges.append((start_point, first_node))
 
-    # ===============================
     # Sampling loop
-    # ===============================
     goal_reached = False
     while goal_reached == False:
 

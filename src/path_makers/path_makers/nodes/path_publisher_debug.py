@@ -16,20 +16,21 @@ class PathPublisher(Node):
 
     def __init__(self):
         super().__init__('path_publisher')
-        #definir si se busca un rrt o un debug
+        # Definir si se busca un rrt o un debug
+        
         self.mode = 'debug'
         
         # ===== Publisher =====
         self.pub_path = self.create_publisher(Path, '/planned_path', 10)
        
-       # ===== Subscriber a odometría =====
+       # ===== Subscribers =======
         self.sub_odom = self.create_subscription(
             Odometry,
             '/odom',
             self.odom_callback,
             10
         )
-        #Subscriber a replan
+
         self.create_subscription(
             Bool,
             '/nav/replan_request',
@@ -58,9 +59,8 @@ class PathPublisher(Node):
 
         self.get_logger().info(f"PathPublisher inicializado a ground: {goal_ground} y odom: {goal_odom}")
 
-    #============================================
-    #Replanificación
-    #============================================
+
+    # Camino de testeo
     def generate_test_path(self):
         
         path_map = [(-7.0,         -7.0        ),
@@ -92,12 +92,12 @@ class PathPublisher(Node):
         
     def plan_from_pose(self):
         
-        xo, yo = self.current_pose  # tomada de odom / ground_truth
+        xo, yo = self.current_pose  # tomada de odom
         x0, y0, yaw0 = self.robot_map_pose
         xm = np.cos(yaw0)*xo - np.sin(yaw0)*yo
         ym = np.sin(yaw0)*xo + np.cos(yaw0)*yo
 
-            # Traslación
+        # Traslación
         xm += x0
         ym += y0
         
@@ -113,11 +113,6 @@ class PathPublisher(Node):
         if not msg.data:
             return
         self.plan_from_pose()
-        
-        
-        
-    #============================================
-
 
        
     def odom_callback(self, msg: Odometry):
@@ -143,7 +138,6 @@ class PathPublisher(Node):
             pose.pose.position.y = y
             pose.pose.position.z = 0.0
 
-            # Orientación neutra (NO usamos yaw aquí)
             pose.pose.orientation.w = 1.0
 
             path.poses.append(pose)

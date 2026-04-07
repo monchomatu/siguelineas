@@ -28,7 +28,6 @@ setup(
     entry_points={
         'console_scripts': [
         "lqr_final = controllers.lqr_final:main",
-        "supervisor_final = controllers.supervisor_final:main",
         "supervisor = controllers.supervisor:main"
         ],
     },
