@@ -1,13 +1,12 @@
-# Siguelíneas - Simulación con ROS2 y Stage
+# Siguelíneas - Simulation with ROS2 and Stage
 
-Este repositorio implementa un sistema de navegación reactiva basado en RRT para un robot tipo uniciclo en simulación usando Stage y ROS2 Jazzy.
+This repository implements a reactive navigation system based on RRT for a unicycle-type robot in simulation using Stage and ROS2 Jazzy.
 
-Ejecutar source install/setup.bash en cada nueva terminal
+Run `source install/setup.bash` in each new terminal
 
 ---
 
-## Requisitos
-
+## Requirements
 - ROS2 Jazzy
 - Python 3
 - colcon
@@ -15,74 +14,78 @@ Ejecutar source install/setup.bash en cada nueva terminal
 
 ---
 
-## Instalación
+## Installation
 
-Clonar el repositorio:
-
+Clone the repository:
 ```bash
 git clone https://github.com/monchomatu/siguelineas.git
 cd siguelineas/src
 ```
-Clonar dependencias externas:
 
+Clone external dependencies:
 ```bash
 git clone https://github.com/tuw-robotics/Stage.git
 git clone https://github.com/tuw-robotics/stage_ros2.git
 ```
-Volver a la raíz del workspace e instalar dependencias del sistema:
+
+Go back to the workspace root and install system dependencies:
 ```bash
 cd ..
 rosdep install --from-paths src --ignore-src -r -y
 ```
 
-Compilar y cargar:
+Build and load:
 ```bash
 colcon build
 source install/setup.bash
 ```
 
 ---
-## Ejecutar simulación
 
-Dar permisos al script:
+## Running the simulation
+
+Grant permissions to the script:
 ```bash
 chmod +x run_experiments.sh
 ```
 
-El siguiente comando tiene la sintáxis para correr múltiples experimentos:
-- archivo
-- cantidad de carreras con replanificación
-- cantidad de carreras sin replanificación
-- ruido en actuadores (true/false)
+The following command has the syntax to run multiple experiments:
+- file
+- number of runs with replanning
+- number of runs without replanning
+- actuator noise (true/false)
 
-```bash 
+```bash
 ./run_experiments.sh 1 1 false
 ```
----
-## Estructura del proyecto
-- stage_utils: mundos, mapas y configuraciones RViz modificados del original stage_ros2
-- path_makers: planificación de trayectorias y publicación de recorrido
-- controllers: control y monitoreo de navegación del robot y launchers
-- perception: procesamiento de sensores
-- En cada ejecución se creará una carpeta llamada results con un csv de las métricas de la corrida y una imágen del recorrido
----
-
-## Dependencias externas
-
-Este trabajo se apoya en herramientas desarrolladas por TU Wien Robotics Group:
-
-- Stage (simulador 2D de robots): https://github.com/tuw-robotics/Stage
-- stage_ros2 (integración de Stage con ROS2): https://github.com/tuw-robotics/stage_ros2
-
-Se agradece a sus respectivos autores por el desarrollo de estas herramientas.
 
 ---
 
-## Licencia y créditos
-
-Este proyecto hace uso de software de terceros. Cada dependencia mantiene su propia licencia, la cual debe ser respetada. Para más información, consultar los repositorios originales.
+## Project structure
+- **stage_utils**: worlds, maps, and RViz configurations modified from the original stage_ros2
+- **path_makers**: trajectory planning and path publishing
+- **controllers**: robot navigation control and monitoring, and launchers
+- **perception**: sensor processing
+- Each run will create a folder called `results` containing a CSV with the run metrics and an image of the trajectory
 
 ---
 
-## Autor
-Ramón Herrera
+## External dependencies
+
+This work builds upon tools developed by the TU Wien Robotics Group:
+- **Stage** (2D robot simulator): https://github.com/tuw-robotics/Stage
+- **stage_ros2** (Stage integration with ROS2): https://github.com/tuw-robotics/stage_ros2
+
+Credits go to their respective authors for the development of these tools.
+
+---
+
+## License and credits
+
+This project makes use of third-party software. Each dependency maintains its own license, which must be respected. For more information, refer to the original repositories.
+
+---
+
+## Author
+
+Ramon Herrera
