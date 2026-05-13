@@ -1,6 +1,28 @@
-# Siguelíneas - Simulation with ROS2 and Stage
+# Reactive Autonomous Navigation with ROS2 and Stage
 
-This repository implements a reactive navigation system based on RRT for a unicycle-type robot in simulation using Stage and ROS2 Jazzy.
+This repository implements a reactive navigation system based on RRT for a unicycle-type robot in simulation using Stage and ROS2 Jazzy. The system combines LQR trajectory tracking, obstacle avoidance, and RRT-based replanning strategies for autonomous navigation
+
+## Features
+
+- Reactive obstacle avoidance
+- RRT-based replanning
+- LQR-based control
+- Autonomous trajectory tracking
+- ROS2 Jazzy integration
+- Stage simulation environment
+- CSV metrics generation
+- Noise generation on actuators
+- Quantity of runs selection with and without the proposed method
+
+## Technologies
+- ROS2 Jazzy
+- Python
+- Linux
+- Stage Simulator
+- RRT
+- LQR Control
+
+# Instructions
 
 Run `source install/setup.bash` in each new terminal
 
